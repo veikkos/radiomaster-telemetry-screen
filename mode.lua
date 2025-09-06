@@ -6,6 +6,13 @@ local RES_Y = 64
 local PADDING = 5
 local PADDING_B = 20
 
+-- CONFIG: Model with
+local BEECH_MODEL_NAME = "Beech"
+
+-- CONFIG: Battery telemetry sources
+local BATTERY_SOURCE_BEECH = "A1"
+local BATTERY_SOURCE_GENERIC = "VFAS"
+
 -- CONFIG: flight mode source
 local MODE_SRC = "ch6"
 local LOW_LBL = "Gyro"
@@ -155,20 +162,30 @@ end
 local function run(event)
     lcd.clear()
 
-    -- Battery voltage (RxBt) big, top-left
-    local bat = USE_MOCK and MOCK_BAT or getValue("RxBt")
+    local name = getModelName()
+
+    -- Battery voltage (configurable source) big, top-left
+    local isBeech = (name == BEECH_MODEL_NAME)
+    local batterySource = isBeech and BATTERY_SOURCE_BEECH or BATTERY_SOURCE_GENERIC
+    local bat = USE_MOCK and MOCK_BAT or getValue(batterySource)
     local batText = bat and string.format("%.2f V", bat) or "--"
     lcd.drawText(PADDING, PADDING, batText, DBLSIZE)
 
     -- Compute battery percent (top-right upper, small)
     local pctText = "--%"
     if bat then
-        local cells = getCellCount(bat)
-        if cells and cells > 0 then
-            local cellV = bat / cells
-            local pct = cellVoltageToPercent(cellV)
-            if pct then
-                pctText = "B (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
+        if isBeech then
+            -- XK2 "Beech" has no battery %, show model name instead
+            pctText = name
+        else
+            -- Generic model - use cell detection and percentage
+            local cells = getCellCount(bat)
+            if cells and cells > 0 then
+                local cellV = bat / cells
+                local pct = cellVoltageToPercent(cellV)
+                if pct then
+                    pctText = "B (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
+                end
             end
         end
     end
@@ -180,11 +197,10 @@ local function run(event)
     lcd.drawText(RES_X - PADDING, PADDING_B, sigText, RIGHT)
 
     -- Flight mode or model name big, bottom-left
-    local name = getModelName()
     local v = USE_MOCK and MOCK_MODE or (getValue(MODE_SRC) or 0)
     local label = pickLabel(v)
     -- If the model name is exactly "Beech", show flight mode; otherwise show model name
-    local bottomLeftText = (name == "Beech" or name == nil or name == "") and label or name
+    local bottomLeftText = (name == BEECH_MODEL_NAME or name == nil or name == "") and label or name
     lcd.drawText(PADDING, RES_Y - PADDING_B, bottomLeftText, DBLSIZE)
 
     -- Timer 1 big, bottom-right (MM:SS)
