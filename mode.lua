@@ -87,21 +87,25 @@ end
 -- Common sensors: "RQly" (ELRS/CRSF), "RSNR" (ELRS), "SNR", "RSSI"
 local function readSignalQuality()
     if USE_MOCK then
-        return MOCK_RSSI, "%"
+        return "RSSI", MOCK_RSSI, "%"
     end
     local rqly = getValue("RQly")
-    if rqly ~= nil and rqly ~= false then
-        return rqly, "%"
+    if rqly ~= nil and rqly ~= false and rqly > 0 then
+        return "RQly", rqly, "%"
     end
-    local snr = getValue("RSNR") or getValue("SNR")
-    if snr ~= nil and snr ~= false then
-        return snr, "dB"
+    local rsnr = getValue("RSNR")
+    if rsnr ~= nil and rsnr ~= false and rsnr > 0 then
+        return "RSNR", rsnr, "dB"
+    end
+    local snr = getValue("SNR")
+    if snr ~= nil and snr ~= false and snr > 0 then
+        return "SNR", snr, "dB"
     end
     local rssi = getValue("RSSI")
-    if rssi ~= nil and rssi ~= false then
-        return rssi, "dB"
+    if rssi ~= nil and rssi ~= false and rssi > 0 then
+        return "RSSI", rssi, "dB"
     end
-    return nil, nil
+    return nil, nil, nil
 end
 
 local MODEL_NAME
@@ -168,7 +172,7 @@ local function run(event)
     local isBeech = (name == BEECH_MODEL_NAME)
     local batterySource = isBeech and BATTERY_SOURCE_BEECH or BATTERY_SOURCE_GENERIC
     local bat = USE_MOCK and MOCK_BAT or getValue(batterySource)
-    local batText = bat and string.format("%.2f V", bat) or "--"
+    local batText = bat and bat > 0 and string.format("%.2fV", bat) or "--V"
     lcd.drawText(PADDING, PADDING, batText, DBLSIZE)
 
     -- Compute battery percent (top-right upper, small)
@@ -184,7 +188,7 @@ local function run(event)
                 local cellV = bat / cells
                 local pct = cellVoltageToPercent(cellV)
                 if pct then
-                    pctText = "B (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
+                    pctText = "Bat (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
                 end
             end
         end
@@ -192,8 +196,8 @@ local function run(event)
     lcd.drawText(RES_X - PADDING, PADDING, pctText, RIGHT)
 
     -- Signal quality (top-right lower, small)
-    local sig, unit = readSignalQuality()
-    local sigText = sig and ("Sig " .. tostring(math.floor(sig + 0.5)) .. (unit or "")) or "--"
+    local type, sig, unit = readSignalQuality()
+    local sigText = sig and (type .. " " .. tostring(math.floor(sig + 0.5)) .. (unit or "")) or "--"
     lcd.drawText(RES_X - PADDING, PADDING_B, sigText, RIGHT)
 
     -- Flight mode or model name big, bottom-left
