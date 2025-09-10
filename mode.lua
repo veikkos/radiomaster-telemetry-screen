@@ -172,7 +172,14 @@ local function run(event)
     local isBeech = (name == BEECH_MODEL_NAME)
     local batterySource = isBeech and BATTERY_SOURCE_BEECH or BATTERY_SOURCE_GENERIC
     local bat = USE_MOCK and MOCK_BAT or getValue(batterySource)
-    local batText = bat and bat > 0 and string.format("%.2fV", bat) or "--V"
+    local batText = "--"
+    if bat and bat > 0 then
+        if isBeech then
+            batText = bat >= 8 and "OK" or "LOW"
+        else
+            batText = string.format("%.2fV", bat)
+        end
+    end
     lcd.drawText(PADDING, PADDING, batText, DBLSIZE)
 
     -- Compute battery percent (top-right upper, small)
