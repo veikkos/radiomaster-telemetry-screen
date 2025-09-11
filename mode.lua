@@ -11,7 +11,7 @@ local BEECH_MODEL_NAME = "Beech"
 
 -- CONFIG: Battery telemetry sources
 local BATTERY_SOURCE_BEECH = "A1"
-local BATTERY_SOURCE_GENERIC = "VFAS"
+local BATTERY_SOURCE_GENERIC = "RxBt"
 
 -- CONFIG: flight mode source
 local MODE_SRC = "ch6"
