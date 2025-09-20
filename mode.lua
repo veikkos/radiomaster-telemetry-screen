@@ -15,9 +15,17 @@ local BATTERY_SOURCE_GENERIC = "RxBt"
 
 -- CONFIG: flight mode source
 local MODE_SRC = "ch6"
-local LOW_LBL = "Gyro"
-local MID_LBL = "3D"
-local HIGH_LBL = "Manual"
+local LOW_LBL_FLIGHT_MODE = "Gyro"
+local MID_LBL_FLIGHT_MODE = "3D"
+local HIGH_LBL_FLIGHT_MODE = "Manual"
+
+-- CONFIG: Beech manual rate
+local RATE_SRC = "sb"
+local LOW_LBL_BEECH_RATE = "High rate"
+local MID_LBL_BEECH_RATE = "Mid rate"
+local HIGH_LBL_BEECH_RATE = "Low rate"
+
+-- CONFIG: three-way switch limit values
 local LOW_RAW = -500
 local HIGH_RAW = 500
 local DEAD_RAW = 100
@@ -29,7 +37,8 @@ local CELL_COUNT = nil
 local USE_MOCK = false
 local MOCK_BAT = 4.074 * 2
 local MOCK_RSSI = 92 -- also used as mock signal quality if RQly not present
-local MOCK_MODE = 0 -- Try -600, 0, or 600 for Gyro/3D/Manual
+local MOCK_FLIGHT_MODE = 0 -- Try -600, 0, or 600 for Gyro/3D/Manual
+local MOCK_MANUAL_RATE = 0 -- Try -600, 0, or 600 for High/Mid/Low rate
 local MOCK_TIMER = 123 -- seconds
 
 -- Per-cell voltage to percentage lookup table
@@ -70,17 +79,30 @@ local function cellVoltageToPercent(v)
     return nil
 end
 
-local function pickLabel(v)
+local function pickLabelFlightMode(v)
     if v <= LOW_RAW then
-        return LOW_LBL
+        return LOW_LBL_FLIGHT_MODE
     end
     if v >= HIGH_RAW then
-        return HIGH_LBL
+        return HIGH_LBL_FLIGHT_MODE
     end
     if math.abs(v) <= DEAD_RAW then
-        return MID_LBL
+        return MID_LBL_FLIGHT_MODE
     end
-    return (v < 0) and LOW_LBL or HIGH_LBL
+    return (v < 0) and LOW_LBL_FLIGHT_MODE or HIGH_LBL_FLIGHT_MODE
+end
+
+local function pickLabelBeechRate(v)
+    if v <= LOW_RAW then
+        return LOW_LBL_BEECH_RATE
+    end
+    if v >= HIGH_RAW then
+        return HIGH_LBL_BEECH_RATE
+    end
+    if math.abs(v) <= DEAD_RAW then
+        return MID_LBL_BEECH_RATE
+    end
+    return (v < 0) and LOW_LBL_BEECH_RATE or HIGH_LBL_BEECH_RATE
 end
 
 -- Try to get a link-quality style metric; fall back to RSSI
@@ -202,14 +224,22 @@ local function run(event)
     end
     lcd.drawText(RES_X - PADDING, PADDING, pctText, RIGHT)
 
-    -- Signal quality (top-right lower, small)
-    local type, sig, unit = readSignalQuality()
-    local sigText = sig and (type .. " " .. tostring(math.floor(sig + 0.5)) .. (unit or "")) or "--"
-    lcd.drawText(RES_X - PADDING, PADDING_B, sigText, RIGHT)
+    -- Top-right lower, small
+    local topRightLowerText = ""
+    if isBeech then
+        -- Manual rates
+        local rate = USE_MOCK and MOCK_MANUAL_RATE or (getValue(RATE_SRC) or 0)
+        topRightLowerText = pickLabelBeechRate(rate)
+    else
+        -- Signal quality
+        local type, sig, unit = readSignalQuality()
+        topRightLowerText = sig and (type .. " " .. tostring(math.floor(sig + 0.5)) .. (unit or "")) or "--"
+    end
+    lcd.drawText(RES_X - PADDING, PADDING_B, topRightLowerText, RIGHT)
 
     -- Flight mode or model name big, bottom-left
-    local v = USE_MOCK and MOCK_MODE or (getValue(MODE_SRC) or 0)
-    local label = pickLabel(v)
+    local v = USE_MOCK and MOCK_FLIGHT_MODE or (getValue(MODE_SRC) or 0)
+    local label = pickLabelFlightMode(v)
     -- If the model name is exactly "Beech", show flight mode; otherwise show model name
     local bottomLeftText = (name == BEECH_MODEL_NAME or name == nil or name == "") and label or name
     lcd.drawText(PADDING, RES_Y - PADDING_B, bottomLeftText, DBLSIZE)
