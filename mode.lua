@@ -16,7 +16,7 @@ local BATTERY_SOURCE_GENERIC = "RxBt"
 -- CONFIG: flight mode source
 local MODE_SRC = "ch6"
 local LOW_LBL_FLIGHT_MODE = "Gyro"
-local MID_LBL_FLIGHT_MODE = "3D"
+local MID_LBL_FLIGHT_MODE = "Smooth"
 local HIGH_LBL_FLIGHT_MODE = "Manual"
 
 -- CONFIG: Beech manual rate
@@ -35,9 +35,10 @@ local CELL_COUNT = nil
 
 -- MOCK CONFIG
 local USE_MOCK = false
+local MOCK_MODEL_NAME = "Ferias"
 local MOCK_BAT = 4.074 * 2
 local MOCK_RSSI = 92 -- also used as mock signal quality if RQly not present
-local MOCK_FLIGHT_MODE = 0 -- Try -600, 0, or 600 for Gyro/3D/Manual
+local MOCK_FLIGHT_MODE = -1000 -- Try -600, 0, or 600 for Gyro/3D/Manual
 local MOCK_MANUAL_RATE = 0 -- Try -600, 0, or 600 for High/Mid/Low rate
 local MOCK_TIMER = 123 -- seconds
 
@@ -132,8 +133,8 @@ end
 
 local MODEL_NAME
 local function getModelName()
-    if FORCE_MODEL_NAME ~= nil then
-        return FORCE_MODEL_NAME
+    if USE_MOCK and MOCK_MODEL_NAME ~= nil then
+        return MOCK_MODEL_NAME
     end
     if MODEL_NAME ~= nil then
         return MODEL_NAME
