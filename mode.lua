@@ -5,6 +5,7 @@ local RES_X = 128
 local RES_Y = 64
 local PADDING = 5
 local PADDING_B = 20
+local PADDING_C = 28
 
 -- CONFIG: Model with
 local BEECH_MODEL_NAME = "Beech"
@@ -33,24 +34,42 @@ local DEAD_RAW = 100
 -- CONFIG: cell count override (set to nil for auto-detect)
 local CELL_COUNT = nil
 
+-- CONFIG: voltage considered low per cell
+local LOW_VOLTAGE = 3.7
+
 -- MOCK CONFIG
 local USE_MOCK = false
 local MOCK_MODEL_NAME = "Ferias"
-local MOCK_BAT = 4.074 * 2
+local MOCK_BAT = 4.074 * 3
 local MOCK_RSSI = 92 -- also used as mock signal quality if RQly not present
 local MOCK_FLIGHT_MODE = -1000 -- Try -600, 0, or 600 for Gyro/3D/Manual
 local MOCK_MANUAL_RATE = 0 -- Try -600, 0, or 600 for High/Mid/Low rate
 local MOCK_TIMER = 123 -- seconds
 
 -- Per-cell voltage to percentage lookup table
-local lipoPercent = {{3.000, 0}, {3.196, 2}, {3.401, 4}, {3.544, 6}, {3.637, 8}, {3.679, 10}, {3.689, 12}, {3.705, 14},
-                     {3.713, 16}, {3.720, 18}, {3.735, 20}, {3.753, 22}, {3.758, 24}, {3.767, 26}, {3.780, 28},
-                     {3.786, 30}, {3.794, 32}, {3.800, 34}, {3.805, 36}, {3.811, 38}, {3.818, 40}, {3.825, 42},
-                     {3.833, 44}, {3.840, 46}, {3.847, 48}, {3.854, 50}, {3.860, 52}, {3.866, 54}, {3.874, 56},
-                     {3.888, 58}, {3.897, 60}, {3.906, 62}, {3.918, 64}, {3.928, 66}, {3.943, 68}, {3.955, 70},
-                     {3.968, 72}, {3.981, 74}, {3.994, 76}, {4.007, 78}, {4.021, 80}, {4.036, 82}, {4.052, 84},
-                     {4.074, 86}, {4.095, 88}, {4.111, 90}, {4.120, 92}, {4.129, 94}, {4.145, 96}, {4.179, 98},
-                     {4.200, 100}}
+local lipoPercent = {
+    {3.27, 0},   -- 0%
+    {3.61, 5},   -- 5%
+    {3.69, 10},  -- 10%
+    {3.71, 15},  -- 15%
+    {3.73, 20},  -- 20%
+    {3.75, 25},  -- 25%
+    {3.76, 30},  -- 30%
+    {3.79, 35},  -- 35%
+    {3.80, 40},  -- 40%
+    {3.82, 45},  -- 45%
+    {3.84, 50},  -- 50%
+    {3.85, 55},  -- 55%
+    {3.87, 60},  -- 60%
+    {3.91, 65},  -- 65%
+    {3.95, 70},  -- 70%
+    {3.98, 75},  -- 75%
+    {4.02, 80},  -- 80%
+    {4.08, 85},  -- 85%
+    {4.11, 90},  -- 90%
+    {4.15, 95},  -- 95%
+    {4.20, 100}  -- 100%
+}
 
 -- Helpers
 local function lerp(a, b, t)
@@ -196,30 +215,46 @@ local function run(event)
     local batterySource = isBeech and BATTERY_SOURCE_BEECH or BATTERY_SOURCE_GENERIC
     local bat = USE_MOCK and MOCK_BAT or getValue(batterySource)
     local batText = "--"
+    local batTextSec = ""
+    local flags = DBLSIZE
     if bat and bat > 0 then
         if isBeech then
-            batText = bat >= 8 and "OK" or "LOW"
+            if bat >= 8 then
+                batText = "OK"
+            else
+                batText = "LOW"
+                flags = flags + BLINK
+            end
         else
+            if bat then
+                local cells = getCellCount(bat)
+                if cells and cells > 0 then
+                    local cellV = bat / cells
+                    if cellV <= LOW_VOLTAGE then
+                        flags = flags + BLINK
+                    end
+                    batTextSec = string.format("%.1fV/cell", bat / cells)
+                end
+            end
             batText = string.format("%.2fV", bat)
         end
     end
-    lcd.drawText(PADDING, PADDING, batText, DBLSIZE)
+    lcd.drawText(PADDING, PADDING, batText, flags)
+    lcd.drawText(PADDING, PADDING_C, batTextSec)
 
     -- Compute battery percent (top-right upper, small)
     local pctText = "--%"
-    if bat then
-        if isBeech then
-            -- XK2 "Beech" has no battery %, show model name instead
-            pctText = name
-        else
-            -- Generic model - use cell detection and percentage
-            local cells = getCellCount(bat)
-            if cells and cells > 0 then
-                local cellV = bat / cells
-                local pct = cellVoltageToPercent(cellV)
-                if pct then
-                    pctText = "Bat (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
-                end
+    if isBeech then
+        -- XK2 "Beech" has no battery %, show model name instead
+        pctText = name
+    elseif bat then
+        -- Generic model - use cell detection and percentage
+        local cells = getCellCount(bat)
+        if cells and cells > 0 then
+            local cellV = bat / cells
+            local pct = cellVoltageToPercent(cellV)
+            if pct then
+                pctText = "Bat (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
             end
         end
     end
