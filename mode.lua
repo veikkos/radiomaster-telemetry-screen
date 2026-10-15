@@ -13,6 +13,7 @@ local BEECH_MODEL_NAME = "Beech"
 -- CONFIG: Battery telemetry sources
 local BATTERY_SOURCE_BEECH = "A1"
 local BATTERY_SOURCE_GENERIC = "RxBt"
+local BATTERY_PCT_SOURCES = {"Bat%", "Bat"} -- first one found is used, otherwise % is estimated from voltage
 
 -- CONFIG: flight mode source
 local MODE_SRC = "ch6"
@@ -41,6 +42,7 @@ local LOW_VOLTAGE = 3.7
 local USE_MOCK = false
 local MOCK_MODEL_NAME = "Ferias"
 local MOCK_BAT = 4.074 * 3
+local MOCK_BAT_PCT = nil -- set to e.g. 75 to mock the Bat% sensor, nil to mock the estimated %
 local MOCK_RSSI = 92 -- also used as mock signal quality if RQly not present
 local MOCK_FLIGHT_MODE = -1000 -- Try -600, 0, or 600 for Gyro/3D/Manual
 local MOCK_MANUAL_RATE = 0 -- Try -600, 0, or 600 for High/Mid/Low rate
@@ -178,6 +180,22 @@ local function getModelName()
     return MODEL_NAME
 end
 
+-- Read battery percentage sensor; returns nil if not available
+local function readBatteryPercent()
+    if USE_MOCK then
+        return MOCK_BAT_PCT
+    end
+    for _, source in ipairs(BATTERY_PCT_SOURCES) do
+        if not getFieldInfo or getFieldInfo(source) then
+            local pct = getValue(source)
+            if type(pct) == "number" then
+                return pct
+            end
+        end
+    end
+    return nil
+end
+
 -- Auto cell count detection (cached)
 local DETECTED_CELL_COUNT = nil
 local function getCellCount(voltage)
@@ -251,10 +269,17 @@ local function run(event)
         -- Generic model - use cell detection and percentage
         local cells = getCellCount(bat)
         if cells and cells > 0 then
-            local cellV = bat / cells
-            local pct = cellVoltageToPercent(cellV)
-            if pct then
-                pctText = "Bat (" .. tostring(cells) .. "S) " .. tostring(pct) .. "%"
+            local sensorPct = readBatteryPercent()
+            if sensorPct then
+                -- Bat% sensor available, use it directly
+                pctText = "Bat (" .. tostring(cells) .. "S) " .. tostring(math.floor(sensorPct + 0.5)) .. "%"
+            else
+                -- No Bat% sensor, estimate from voltage (marked with "*")
+                local cellV = bat / cells
+                local pct = cellVoltageToPercent(cellV)
+                if pct then
+                    pctText = "Bt (" .. tostring(cells) .. "S) *" .. tostring(pct) .. "%"
+                end
             end
         end
     end
