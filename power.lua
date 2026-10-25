@@ -13,7 +13,7 @@ local PADDING = 1
 -- CONFIG: telemetry sources
 local VOLTAGE_SOURCE = "RxBt"
 local CURRENT_SOURCE = "Curr"
-local CAPACITY_SOURCE = "Capa" -- used if available, otherwise mAh is integrated from current
+local CAPACITY_SOURCE = "Capa" -- used if available, otherwise mAh is integrated from current and shown with "*"
 local LINK_SOURCE = "RQly" -- readings only count while this is above 0, falls back to RSSI if missing
 local BATTERY_PCT_SOURCE = "Bat%" -- remaining % from the current sensor (e.g. ERS-CU01 with battery capacity set), hidden if missing
 
@@ -105,7 +105,7 @@ local function readCapacity()
         return nil
     end
     local c = getValue(CAPACITY_SOURCE)
-    if type(c) == "number" and c > 0 then
+    if type(c) == "number" then
         return c
     end
     return nil
@@ -302,9 +302,16 @@ local function run(event)
     -- Energy and capacity used, no label so the values get the full width
     local wh = energyWs / 3600
     local whText = wh < 10 and string.format("%.1fWh", wh) or string.format("%dWh", math.floor(wh + 0.5))
-    local mah = readCapacity() or chargeAs / 3.6
+    -- Capa sensor if available, otherwise integrated from current (marked with "*" like estimates in mode.lua)
+    local mahText
+    local capa = readCapacity()
+    if capa then
+        mahText = string.format("%dmAh", math.floor(capa + 0.5))
+    else
+        mahText = string.format("*%dmAh", math.floor(chargeAs / 3.6 + 0.5))
+    end
     lcd.drawText(PADDING, y, whText, SMLSIZE)
-    lcd.drawText(COL2_R, y, string.format("%dmAh", math.floor(mah + 0.5)), SMLSIZE + RIGHT)
+    lcd.drawText(COL2_R, y, mahText, SMLSIZE + RIGHT)
 
     drawChart()
 
