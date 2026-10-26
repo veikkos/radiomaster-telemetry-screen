@@ -4,9 +4,11 @@ Telemetry screens for EdgeTX.
 
 ## Target hardware
 
-Works best with Radiomaster Pocket. The script has a special flight mode feature for WLtoys XK A300 Beech D17S (with model name set to "Beech") but can be used with any aircraft.
+Works with Radiomaster Pocket or with any other 128*64 monochrome LCD model.
 
 ## Screenshots
+
+The script has a special flight mode feature for WLtoys XK A300 Beech D17S (with model name set to "Beech") but can be used with any aircraft.
 
 ### Generic
 
