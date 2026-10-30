@@ -1,6 +1,6 @@
 -- Power monitor telemetry page: current and power (RxBt * Curr), max and average, plus a power history chart
 -- Top: power (left) and current (right), big
--- Bottom-left: Max / Avg table for W and A, battery voltage/remaining %, energy and capacity used
+-- Bottom-left: Max / Avg table for W and A, battery voltage/remaining %, flight time and capacity used
 -- Bottom-right: power history chart (peak per column)
 -- Stats reset with the radio's Reset session / Reset telemetry
 -- CONFIG: screen resolution (layout is designed for 128x64 and scaled for bigger screens)
@@ -20,8 +20,8 @@ local BATTERY_PCT_SOURCE = "Bat%" -- remaining % from the current sensor (e.g. E
 -- CONFIG: Bat row blinks when remaining % is at or below this
 local LOW_PERCENT = 20
 
--- CONFIG: averages count from the first time current reaches this (so time on the ground before takeoff doesn't dilute them)
-local FLIGHT_START_CURRENT = 0.5
+-- CONFIG: flight timer, averages only count while it is running (e.g. a timer started by throttle)
+local TIMER_SOURCE = "timer1"
 
 -- CONFIG: chart
 local CHART_SECONDS = 300 -- history shown, each chart column holds the peak of CHART_SECONDS / chart width
@@ -56,13 +56,15 @@ local lastSampleTime = nil
 local lastTime = nil
 
 local maxP, maxI = 0, 0
-local energyWs = 0 -- all energy used, watt-seconds
 local chargeAs = 0 -- all charge used, amp-seconds
-local flightStarted = false -- current has reached FLIGHT_START_CURRENT
-local flightTime = 0 -- seconds with readings since the flight started
+local flightTime = 0 -- seconds with readings while the flight timer ran
 local flightEnergyWs = 0
 local flightChargeAs = 0
+local pendTime, pendEnergyWs, pendChargeAs = 0, 0, 0 -- since the last timer tick, counted once the timer ticks again
+local timerValue = nil
+local timerChangeTime = nil
 local minV = nil
+local lastCapa = nil
 
 local volt, curr = nil, nil
 
@@ -73,10 +75,11 @@ local function resetStats()
     samplePeak = 0
     lastSampleTime = nil
     maxP, maxI = 0, 0
-    energyWs, chargeAs = 0, 0
-    flightStarted = false
+    chargeAs = 0
     flightTime, flightEnergyWs, flightChargeAs = 0, 0, 0
+    pendTime, pendEnergyWs, pendChargeAs = 0, 0, 0
     minV = nil
+    lastCapa = nil
 end
 
 -- Sensors keep their last value after the link drops, so check the link before trusting them
@@ -100,15 +103,18 @@ local function readSensors()
     return v, i
 end
 
+-- Telemetry reads 0 while the link is down, so keep showing the last value then
 local function readCapacity()
     if getFieldInfo and not getFieldInfo(CAPACITY_SOURCE) then
         return nil
     end
-    local c = getValue(CAPACITY_SOURCE)
-    if type(c) == "number" then
-        return c
+    if linkUp() then
+        local c = getValue(CAPACITY_SOURCE)
+        if type(c) == "number" then
+            lastCapa = c
+        end
     end
-    return nil
+    return lastCapa
 end
 
 local function readBatteryPercent()
@@ -134,9 +140,13 @@ local function pushSample(p)
 end
 
 -- Scripts get no event for the radio's reset, but it zeroes every sensor's max,
--- so the radio's own max current (e.g. "Curr+") going down means a reset
+-- so the radio's own max current (e.g. "Curr+") going down means a reset.
+-- Telemetry reads 0 while the link is down, so only check with the link up
 local lastRadioMaxI = nil
 local function checkRadioReset()
+    if not linkUp() then
+        return
+    end
     local m = getValue(CURRENT_SOURCE .. "+")
     if type(m) ~= "number" then
         return
@@ -148,6 +158,27 @@ local function checkRadioReset()
 end
 
 -- Called from both run and background so stats keep accumulating while another page is shown
+-- The timer ticks once a second while running. Readings since the last tick are counted
+-- when it ticks again, and dropped if it doesn't (timer stopped), so only running time counts
+local function checkTimer(now)
+    local t = getValue(TIMER_SOURCE)
+    if type(t) ~= "number" then
+        return
+    end
+    if t ~= timerValue then
+        if timerChangeTime and now - timerChangeTime <= 150 then
+            flightTime = flightTime + pendTime
+            flightEnergyWs = flightEnergyWs + pendEnergyWs
+            flightChargeAs = flightChargeAs + pendChargeAs
+        end
+        timerValue = t
+        timerChangeTime = now
+        pendTime, pendEnergyWs, pendChargeAs = 0, 0, 0
+    elseif timerChangeTime and now - timerChangeTime > 150 then
+        pendTime, pendEnergyWs, pendChargeAs = 0, 0, 0
+    end
+end
+
 local function update()
     checkRadioReset()
     local now = getTime() -- 10ms ticks
@@ -168,25 +199,19 @@ local function update()
             minV = volt
         end
 
-        if curr >= FLIGHT_START_CURRENT then
-            flightStarted = true
-        end
-
         -- Skip integrating over long gaps (script paused, telemetry dropout)
         if dt > 0 and dt < 2 then
-            energyWs = energyWs + p * dt
             chargeAs = chargeAs + curr * dt
-            if flightStarted then
-                flightTime = flightTime + dt
-                flightEnergyWs = flightEnergyWs + p * dt
-                flightChargeAs = flightChargeAs + curr * dt
-            end
+            pendTime = pendTime + dt
+            pendEnergyWs = pendEnergyWs + p * dt
+            pendChargeAs = pendChargeAs + curr * dt
         end
 
         if p > samplePeak then
             samplePeak = p
         end
     end
+    checkTimer(now)
 
     -- Chart starts with the first reading, then keeps scrolling without readings so a link loss shows as a gap
     if lastSampleTime == nil then
@@ -299,9 +324,12 @@ local function run(event)
     lcd.drawText(PADDING, y, "Bat", batFlags)
     lcd.drawText(COL2_R, y, batText, batFlags + RIGHT)
     y = y + ROW_H
-    -- Energy and capacity used, no label so the values get the full width
-    local wh = energyWs / 3600
-    local whText = wh < 10 and string.format("%.1fWh", wh) or string.format("%dWh", math.floor(wh + 0.5))
+    -- Flight time and capacity used, no label so the values get the full width
+    local timer = getValue(TIMER_SOURCE)
+    local timerText = "--:--"
+    if type(timer) == "number" then
+        timerText = string.format("%02d:%02d", math.floor(timer / 60), math.floor(timer % 60))
+    end
     -- Capa sensor if available, otherwise integrated from current (marked with "*" like estimates in mode.lua)
     local mahText
     local capa = readCapacity()
@@ -310,7 +338,7 @@ local function run(event)
     else
         mahText = string.format("*%dmAh", math.floor(chargeAs / 3.6 + 0.5))
     end
-    lcd.drawText(PADDING, y, whText, SMLSIZE)
+    lcd.drawText(PADDING, y, timerText, SMLSIZE)
     lcd.drawText(COL2_R, y, mahText, SMLSIZE + RIGHT)
 
     drawChart()
